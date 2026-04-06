@@ -1,0 +1,12 @@
+{
+  "name": "google-slide-spectacles",
+  "version": "1.0.0",
+  "description": "WebSocket server for Spectacles presentation sync",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
