@@ -17,27 +17,31 @@ function fetchSlideIds(presentationId) {
   return new Promise((resolve, reject) => {
     const embedUrl = `https://docs.google.com/presentation/d/${presentationId}/embed`;
     https.get(embedUrl, (resp) => {
+      // Follow redirects
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        https.get(resp.headers.location, (resp2) => {
+          let data = '';
+          resp2.on('data', (chunk) => data += chunk);
+          resp2.on('end', () => resolve(parseSlideIds(data)));
+        }).on('error', reject);
+        return;
+      }
       let data = '';
       resp.on('data', (chunk) => data += chunk);
-      resp.on('end', () => {
-        // Extract slide IDs from the embed page HTML
-        const regex = /slide[_-]id[.=]([a-zA-Z0-9_-]+)/g;
-        const ids = new Set();
-        let match;
-        while ((match = regex.exec(data)) !== null) {
-          ids.add(match[1]);
-        }
-        // Also try another pattern used in embed pages
-        const regex2 = /"([gp][a-f0-9_]+)"/g;
-        while ((match = regex2.exec(data)) !== null) {
-          if (match[1].length > 3) {
-            ids.add(match[1]);
-          }
-        }
-        resolve([...ids]);
-      });
+      resp.on('end', () => resolve(parseSlideIds(data)));
     }).on('error', reject);
   });
+}
+
+function parseSlideIds(html) {
+  // Extract ordered slide IDs from docData: each slide starts with ["slideId",number,"
+  const regex = /\["([gp][a-f0-9_]*)",[0-9]+,"/g;
+  const ids = [];
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    ids.push(match[1]);
+  }
+  return ids;
 }
 
 // Create HTTP server
