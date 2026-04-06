@@ -7,13 +7,61 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 
+const https = require('https');
+
 // Configuration
 const PORT = process.env.PORT || 8080;
+
+// Fetch slide IDs from a public Google Slides presentation
+function fetchSlideIds(presentationId) {
+  return new Promise((resolve, reject) => {
+    const embedUrl = `https://docs.google.com/presentation/d/${presentationId}/embed`;
+    https.get(embedUrl, (resp) => {
+      let data = '';
+      resp.on('data', (chunk) => data += chunk);
+      resp.on('end', () => {
+        // Extract slide IDs from the embed page HTML
+        const regex = /slide[_-]id[.=]([a-zA-Z0-9_-]+)/g;
+        const ids = new Set();
+        let match;
+        while ((match = regex.exec(data)) !== null) {
+          ids.add(match[1]);
+        }
+        // Also try another pattern used in embed pages
+        const regex2 = /"([gp][a-f0-9_]+)"/g;
+        while ((match = regex2.exec(data)) !== null) {
+          if (match[1].length > 3) {
+            ids.add(match[1]);
+          }
+        }
+        resolve([...ids]);
+      });
+    }).on('error', reject);
+  });
+}
 
 // Create HTTP server
 const server = http.createServer((req, res) => {
   const parsedUrl = url.parse(req.url, true);
-  
+
+  // Slide IDs endpoint
+  if (parsedUrl.pathname === '/slide-ids') {
+    const presentationId = parsedUrl.query.id;
+    if (!presentationId) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Missing id parameter' }));
+      return;
+    }
+    fetchSlideIds(presentationId).then(ids => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ slideIds: ids }));
+    }).catch(err => {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message }));
+    });
+    return;
+  }
+
   // Handle HTTP requests
   if (parsedUrl.pathname === '/status') {
     // Status endpoint

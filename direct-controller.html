@@ -79,6 +79,10 @@
         z-index: 100;
       }
       .fullscreen-btn:hover { background: rgba(66, 133, 244, 1); }
+      .loading-msg {
+        font-size: 20px;
+        color: #aaa;
+      }
     </style>
   </head>
   <body>
@@ -86,40 +90,61 @@
       <input type="text" id="ws-url" value="wss://google-slide-spectacles.onrender.com" placeholder="WebSocket URL" style="width:320px" />
       <button id="connect-btn" onclick="toggleConnection()">Connect</button>
       <div id="status" class="status disconnected">Disconnected</div>
-      <div id="slide-info" class="slide-info">Slide: 1</div>
+      <div id="slide-info" class="slide-info">Loading slides...</div>
     </div>
 
-    <div class="slide-container">
-      <iframe id="slide-frame"
-        src="https://docs.google.com/presentation/d/1M05GYusUYmFbWy95PzXOWKg6ttY-Tx2ToaKZ6Dc0sqg/embed?start=false&loop=false&delayms=60000&rm=minimal"
-        allowfullscreen="true">
-      </iframe>
+    <div class="slide-container" id="slide-container">
+      <div class="loading-msg">Loading presentation...</div>
     </div>
 
     <button class="fullscreen-btn" onclick="goFullscreen()">Fullscreen</button>
 
     <script>
+      const PRESENTATION_ID = '1M05GYusUYmFbWy95PzXOWKg6ttY-Tx2ToaKZ6Dc0sqg';
       let socket = null;
       let currentSlide = 0;
-      const TOTAL_SLIDE_PAGES = 100; // upper bound, iframe handles actual count
-      const PRESENTATION_ID = '1M05GYusUYmFbWy95PzXOWKg6ttY-Tx2ToaKZ6Dc0sqg';
+      let slideIds = [];
 
-      function updateSlideFrame() {
-        // Google Slides embed uses page number in URL fragment
-        const frame = document.getElementById('slide-frame');
-        frame.src = `https://docs.google.com/presentation/d/${PRESENTATION_ID}/embed?start=false&loop=false&delayms=60000&rm=minimal&slide=id.p${currentSlide}`;
-        document.getElementById('slide-info').textContent = `Slide: ${currentSlide + 1}`;
+      // Fetch slide IDs from our server
+      async function loadSlideIds() {
+        try {
+          const resp = await fetch(`/slide-ids?id=${PRESENTATION_ID}`);
+          const data = await resp.json();
+          if (data.slideIds && data.slideIds.length > 0) {
+            slideIds = data.slideIds;
+            console.log('Found slide IDs:', slideIds);
+            showSlide(0);
+          } else {
+            // Fallback: just load the embed without specific slide control
+            document.getElementById('slide-container').innerHTML =
+              `<iframe src="https://docs.google.com/presentation/d/${PRESENTATION_ID}/embed?start=false&loop=false&delayms=60000&rm=minimal" allowfullscreen="true"></iframe>`;
+            document.getElementById('slide-info').textContent = 'Slides loaded (manual navigation)';
+          }
+        } catch (e) {
+          console.error('Error fetching slide IDs:', e);
+          document.getElementById('slide-container').innerHTML =
+            `<iframe src="https://docs.google.com/presentation/d/${PRESENTATION_ID}/embed?start=false&loop=false&delayms=60000&rm=minimal" allowfullscreen="true"></iframe>`;
+        }
+      }
+
+      function showSlide(index) {
+        if (index < 0 || index >= slideIds.length) return;
+        currentSlide = index;
+        const slideId = slideIds[index];
+        document.getElementById('slide-container').innerHTML =
+          `<iframe src="https://docs.google.com/presentation/d/${PRESENTATION_ID}/embed?start=false&loop=false&delayms=60000&rm=minimal&slide=id.${slideId}" allowfullscreen="true"></iframe>`;
+        document.getElementById('slide-info').textContent = `Slide ${index + 1} / ${slideIds.length}`;
       }
 
       function nextSlide() {
-        currentSlide++;
-        updateSlideFrame();
+        if (currentSlide < slideIds.length - 1) {
+          showSlide(currentSlide + 1);
+        }
       }
 
       function previousSlide() {
         if (currentSlide > 0) {
-          currentSlide--;
-          updateSlideFrame();
+          showSlide(currentSlide - 1);
         }
       }
 
@@ -148,11 +173,8 @@
             try {
               const data = JSON.parse(event.data);
               if (data.type === 'command' && !data.status) {
-                if (data.command === 'next') {
-                  nextSlide();
-                } else if (data.command === 'previous') {
-                  previousSlide();
-                }
+                if (data.command === 'next') nextSlide();
+                else if (data.command === 'previous') previousSlide();
               }
             } catch (e) {}
           });
@@ -170,26 +192,27 @@
         } catch (e) {}
       }
 
-      // Keyboard controls for manual testing
+      // Keyboard controls
       document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
           nextSlide();
-          if (socket && socket.readyState === WebSocket.OPEN) {
+          if (socket && socket.readyState === WebSocket.OPEN)
             socket.send(JSON.stringify({ type: 'command', command: 'next' }));
-          }
         } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
           previousSlide();
-          if (socket && socket.readyState === WebSocket.OPEN) {
+          if (socket && socket.readyState === WebSocket.OPEN)
             socket.send(JSON.stringify({ type: 'command', command: 'previous' }));
-          }
         }
       });
 
       function goFullscreen() {
-        const container = document.querySelector('.slide-container');
-        if (container.requestFullscreen) container.requestFullscreen();
-        else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+        const el = document.querySelector('.slide-container');
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
       }
+
+      // Start
+      loadSlideIds();
     </script>
   </body>
 </html>
